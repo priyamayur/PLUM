@@ -1,1 +1,2 @@
-# PLUM-
+# PLUM
+# Antimicrobial peptide generation
