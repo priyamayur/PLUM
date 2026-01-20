@@ -238,4 +238,71 @@ def save_artifacts(model, metrics):
 
 def main():
     print("📥 Loading data...")
-    X_tra_
+    X_train_seqs, y_train = load_csv_data(TRAIN_CSV)
+    X_test_seqs, y_test = load_csv_data(TEST_CSV)
+
+    print(
+        f"Train samples: {len(X_train_seqs)} | "
+        f"Test samples: {len(X_test_seqs)}"
+    )
+
+    encoder, tokenizer = load_prott5()
+
+    print("🔄 Generating TRAIN embeddings...")
+    X_train = generate_embeddings(
+        X_train_seqs, encoder, tokenizer, BATCH_SIZE
+    )
+
+    print("🔄 Generating TEST embeddings...")
+    X_test = generate_embeddings(
+        X_test_seqs, encoder, tokenizer, BATCH_SIZE
+    )
+
+    cv = StratifiedKFold(
+        n_splits=N_SPLITS,
+        shuffle=True,
+        random_state=RANDOM_STATE,
+    )
+
+    models = build_models()
+
+    best_score = -np.inf
+    best_model = None
+    best_name = None
+    best_metrics = None
+
+    for name, pipe in models.items():
+        print(f"\n🚀 Training {name}")
+
+        cv_results = cross_validate(
+            pipe,
+            X_train,
+            y_train,
+            cv=cv,
+            scoring=SCORING,
+            n_jobs=-1,
+        )
+
+        report_cv_results(name, cv_results)
+
+        pipe.fit(X_train, y_train)
+        test_metrics = evaluate_on_test(
+            pipe, X_test, y_test
+        )
+
+        if test_metrics["roc_auc"] > best_score:
+            best_score = test_metrics["roc_auc"]
+            best_model = pipe
+            best_name = name
+            best_metrics = {"model": name, **test_metrics}
+
+    print(f"\n🏆 Best model: {best_name}")
+    print(f"🏅 Best ROC-AUC: {best_score:.4f}")
+
+    save_artifacts(best_model, best_metrics)
+    print(f"💾 Saved to: {BEST_DIR}")
+    print("🎉 DONE")
+
+
+if __name__ == "__main__":
+    main()
