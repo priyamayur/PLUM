@@ -1,0 +1,6 @@
+{
+    "encoder_name": "Rostlab/prot_t5_xl_half_uniref50-enc",
+    "embedding_method": "mean_pooling_last_hidden_state",
+    "tokenization": "space-separated amino acids",
+    "device": "cuda"
+}

@@ -1,0 +1,5 @@
+{
+    "encoder_name": "Rostlab/prot_t5_xl_half_uniref50-enc",
+    "embedding": "mean_pooling_last_hidden_state",
+    "task": "multiclass_MIC"
+}
