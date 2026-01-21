@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+from datetime import datetime
 import os
 from Bio import SeqIO
 import joblib
@@ -70,7 +71,7 @@ def classify_amp_mic(embeddings, amp_clf, mic_clf, amp_threshold=0.5):
     amp_probs = amp_clf.predict_proba(embeddings)[:, 1]
     amp_positive_mask = amp_probs >= amp_threshold
     amp_classes = np.where(amp_positive_mask, "AMP", "Non-AMP")
-    print(f"✅ AMP prediction done. {amp_positive_mask.sum()} sequences predicted as AMP.")
+    print(f"✅ AMP prediction done.")
 
     print("🔄 Predicting MIC activity for AMP-positive sequences...")
     mic_probs = np.full(len(embeddings), np.nan)
@@ -89,7 +90,7 @@ def classify_amp_mic(embeddings, amp_clf, mic_clf, amp_threshold=0.5):
 def save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_classes, output_path):
     """Save results to TSV file."""
     print(f"🔄 Saving predictions to {output_path}...")
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(output_path, exist_ok=True)
     df = pd.DataFrame({
         "seq_id": [rec.id for rec in records],
         "sequence": sequences,
@@ -98,23 +99,31 @@ def save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_clas
         "mic_prob": mic_probs,
         "mic_class": mic_classes
     })
-    df.to_csv(output_path, sep="\t", index=False)
-    print(f"✅ Predictions saved to {output_path}")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = os.path.join(output_path, "classified_peptides_" + timestamp + ".tsv")
+    df.to_csv(output_file, sep="\t", index=False)
+    print(f"✅ Predictions saved to {output_file}")
 
 # -------------------- Main --------------------
 def main():
     parser = argparse.ArgumentParser(description="Predict AMP and MIC activity for peptide sequences")
     parser.add_argument("--input", "-i", required=True, help="Input FASTA file path")
-    parser.add_argument("--output", "-o", required=True, help="Output TSV file path")
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu", help="Device (cuda/cpu)")
-    parser.add_argument("--amp_threshold", type=float, default=0.5, help="Threshold for AMP classification")
-    parser.add_argument("--batch_size", type=int, default=64, help="Batch size for embedding generation")
+    parser.add_argument("-o", "--output_dir", default=None, help="Output directory to save peptides TSV (default: ./classified_peptides/)")
 
     args = parser.parse_args()
-    device = torch.device(args.device)
-
+    
     dir_path = os.getcwd()  # Current directory as base path
+    
+    # Output directory
+    output_dir = args.output_dir or "classified_peptides"
+    output_path = os.path.join(os.getcwd(), output_dir)
 
+
+    # Set parameters
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    amp_threshold = 0.5
+    batch_size = 64
+    
     # Load models
     amp_clf, mic_clf = load_classifiers(dir_path)
     encoder, tokenizer = load_encoder(dir_path, device)
@@ -123,15 +132,15 @@ def main():
     records, sequences = load_fasta(args.input)
 
     # Generate embeddings
-    embeddings = generate_embeddings(sequences, encoder, tokenizer, device, batch_size=args.batch_size)
+    embeddings = generate_embeddings(sequences, encoder, tokenizer, device, batch_size=batch_size)
 
     # Classify
     amp_probs, amp_classes, mic_probs, mic_classes = classify_amp_mic(
-        embeddings, amp_clf, mic_clf, amp_threshold=args.amp_threshold
+        embeddings, amp_clf, mic_clf, amp_threshold=amp_threshold
     )
 
     # Save results
-    save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_classes, args.output)
+    save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_classes, output_path)
 
 if __name__ == "__main__":
     main()

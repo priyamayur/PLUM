@@ -72,11 +72,12 @@ For peptides predicted as AMPs, the model also predicts whether they are **Poten
 
 #### Command
 ```bash
-python classify_AMP.py -i <input_fasta> -o <output_tsv>
+python classify_AMP.py -i <input_fasta> -o <output_dir>
 ```
 
 - `-i <input_fasta>` : Path to the input FASTA file containing the peptide sequences you want to classify. Each sequence should have a unique identifier. **Required**.
-- `-o <output_tsv>` : Path to the output TSV file where the classification results will be saved. **Required**.
+- `-o <output_dir>` : Directory where the classified peptides will be saved.  
+                      Optional; default is `classified_peptides/`. 
 
 #### Example usage
 ```bash
@@ -93,7 +94,7 @@ The output TSV file from `classify_AMP.py` contains the following columns:
 | `amp_prob`    | Model probability that the peptide is an AMP |
 | `amp_class`   | Predicted class: `AMP` or `Non-AMP` |
 | `mic_prob`    | Probability that the peptide is MIC-active (only for AMPs) |
-| `mic_class`   | Predicted MIC activity: `MIC_active` or `NA` (Non-AMPs) |
+| `mic_class`   | Predicted MIC activity: `MIC_active` or `MIC_inactive` or `NA` (Non-AMPs) |
 
 ### Generate *de novo* Peptides
 
