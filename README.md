@@ -26,9 +26,11 @@ The complete dataset associated with this study is available at the Google Drive
 
 The codebase requires the following Python version:
 
-- Python >= 3.12
+- Python >= 3.12 
 
-The software was tested on a Linux-based system.
+- The software was tested on a Linux-based system (tested on python version 3.9 and 3.12).
+
+- The software was tested on a Windows system (tested on python version 3.12).
 
 A complete list of required packages and their versions is provided in:
 
@@ -36,7 +38,7 @@ A complete list of required packages and their versions is provided in:
 
 ---
 
-## Installation
+## Installation (Linux)
 
 Follow the steps below to install and set up PLUM.
 
@@ -61,6 +63,17 @@ source <environment_name>/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+
+## Installation (Windows)
+
+For windows mahine use the same steps 1,2 and 4.
+For step 3: 
+```bash
+python3 -m venv <environment_name>
+```
+```bash
+<environment_name>\Scripts\Activate.ps1
+```
 ---
 
 ## Usage
@@ -81,7 +94,7 @@ python classify_AMP.py -i <input_fasta> -o <output_dir>
 
 #### Example usage
 ```bash
-python classify_AMP.py -i data/peptide_test.fasta -o res/classification_out.tsv
+python classify_AMP.py -i data/peptide_test.fasta -o res
 ```
 #### output file
 
@@ -115,7 +128,7 @@ python generate_peptides_denovo.py -f <AMP_function> -l <peptide_length> -n <num
   - Optional; if not provided, the model selects a random length between 5 and 35.
 
 - `-n <num_peptides>` : Number of peptides to generate.  
-  - Optional; default is determined by the model.
+  - Optional; default is 10.
 
 - `-o <output_dir>` : Directory where the generated peptides will be saved.  
   - Optional; default is `generated_peptides/`. 
@@ -126,7 +139,7 @@ python generate_peptides_denovo.py -f 0 -l 12 -n 30 -o outp_denovo
 ```
 #### output file
 
-The generated peptides CSV file contains the following columns:
+The generated peptides TSV file contains the following columns:
 
 | Column Name | Description |
 |-------------|-------------|
@@ -155,7 +168,7 @@ python generate_peptides_prototype_conditioned.py -i <input_fasta> -f <AMP_funct
   - Optional; if not provided, the model selects a random length between 5 and 35.
 
 - `-n <num_peptides>` : Number of peptides to generate.  
-  - Optional; default is determined by the model.
+  - Optional; default is 5.
 
 - `-o <output_dir>` : Directory where the generated peptides will be saved.  
   - Optional; default is `generated_peptides_prototype/`. generated_peptides
@@ -167,7 +180,7 @@ python generate_peptides_prototype_conditioned.py -i data/peptide_test.fasta -f 
 
 #### output file
 
-The generated peptides are saved in a CSV file in the specified output directory. The output file contains the following columns:
+The generated peptides are saved in a TSV file in the specified output directory. The output file contains the following columns:
 
 | Column Name          | Description |
 |---------------------|-------------|

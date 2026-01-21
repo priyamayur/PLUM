@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+from pathlib import Path
 import torch
 import torch.nn.functional as F
 import pandas as pd
@@ -105,7 +106,7 @@ def cache_priors(model, target_func, target_len_bin, device):
 
 # -------------------- Main Generation --------------------
 
-def generate(model, sequences, target_func, target_length, n_samples, output_dir, device):
+def generate(model, sequences, target_func, target_length, n_samples, output_path, device):
     target_len_bin = int(np.argmax(length_to_bin(target_length)))
     decode_len = target_length
     prior_cache = cache_priors(model, target_func, target_len_bin, device)
@@ -116,7 +117,10 @@ def generate(model, sequences, target_func, target_length, n_samples, output_dir
         x_proto = torch.tensor(model.one_hot_encode(proto_seq), dtype=torch.float32).unsqueeze(0).to(device)
         mu_z, logvar_z = model.q_z(x_proto)
         proto_onehot = torch.tensor(model.one_hot_encode(proto_seq), dtype=torch.float32, device=device).unsqueeze(0)
-        z_batch, w_batch, v_batch = sample_latents(model, mu_z, n_samples, target_func, target_len_bin, device, prior_cache=prior_cache)
+        z_batch, w_batch, v_batch = sample_latents(
+            model, mu_z, n_samples, target_func, target_len_bin, device,
+            prior_cache=prior_cache
+        )
         seqs = decode_sequence_batch(model, z_batch, w_batch, v_batch, decode_len, proto_onehot, device=device)
         for s in seqs:
             s_clean = clean_sequence(s)
@@ -131,10 +135,10 @@ def generate(model, sequences, target_func, target_length, n_samples, output_dir
                 })
 
     df = pd.DataFrame(all_results)
-    os.makedirs(output_dir, exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(output_dir, f"peptides_func{target_func}_len{target_length}_{timestamp}.csv")
-    df.to_csv(output_file, index=False)
+    output_file = output_path / f"peptides_func{target_func}_len{target_length}_{timestamp}.tsv"
+    df.to_csv(output_file, sep="\t", index=False)
     log(f"✅ Saved {len(df)} peptides to {output_file}")
 
 # -------------------- CLI --------------------
@@ -144,27 +148,34 @@ def main():
     parser.add_argument("-i", "--input_fasta", required=True, help="Input FASTA file")
     parser.add_argument("-f", "--target_function", required=True, type=int, help="Target function ID")
     parser.add_argument("-l", "--target_length", type=int, help="Target peptide length (optional)")
-    parser.add_argument("-n", "--n_samples", type=int, default=5, help="Number of analogues per sequence")
+    parser.add_argument("-n", "--n_samples", type=int, default=5, help="Number of analogues per sequence (default: 5)")
     parser.add_argument("-o", "--output_dir", default="generated_peptides_prototype", help="Output directory")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dir_path = os.getcwd()
-    checkpoint_path = os.path.join(dir_path, "trained_models/generative_model/PLUM_checkpoint_v5.pth")
 
-    # Load model
+    dir_path = Path(__file__).resolve().parent
+    checkpoint_path = dir_path / "trained_models" / "generative_model" / "PLUM_checkpoint_v5.pth"
+
     model = load_model(checkpoint_path, device)
 
-    # Load sequences
     sequences = [str(rec.seq).upper() for rec in SeqIO.parse(args.input_fasta, "fasta")]
     if not sequences:
         raise ValueError(f"No sequences found in {args.input_fasta}")
 
-    # Determine target length
     target_length = args.target_length or random.randint(5, 35)
     log(f"Target function: {args.target_function}, Target length: {target_length}")
 
-    generate(model, sequences, args.target_function, target_length, args.n_samples, args.output_dir, device)
+    output_path = dir_path / args.output_dir
+    generate(
+        model,
+        sequences,
+        args.target_function,
+        target_length,
+        args.n_samples,
+        output_path,
+        device
+    )
 
 if __name__ == "__main__":
     main()

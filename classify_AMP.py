@@ -2,6 +2,7 @@
 import argparse
 from datetime import datetime
 import os
+from pathlib import Path
 from Bio import SeqIO
 import joblib
 import torch
@@ -18,8 +19,8 @@ warnings.filterwarnings("ignore")
 def load_classifiers(dir_path):
     """Load AMP and MIC classifiers from current directory."""
     print("🔄 Loading AMP and MIC classifiers...")
-    amp_path = os.path.join(dir_path, "trained_models/classifiers/AMP_classifier/classifier.pkl")
-    mic_path = os.path.join(dir_path, "trained_models/classifiers/AMP_MIC_classifier/classifier.pkl")
+    amp_path = dir_path / "trained_models" / "classifiers" / "AMP_classifier" / "classifier.pkl"
+    mic_path = dir_path / "trained_models" / "classifiers" / "AMP_MIC_classifier" / "classifier.pkl"
     amp_clf = joblib.load(amp_path)
     mic_clf = joblib.load(mic_path)
     print("✅ Classifiers loaded.")
@@ -28,8 +29,8 @@ def load_classifiers(dir_path):
 def load_encoder(dir_path, device):
     """Load ProtT5 encoder and tokenizer from current directory."""
     print("🔄 Loading ProtT5 encoder and tokenizer...")
-    encoder_info_path = os.path.join(dir_path, "trained_models/classifiers/AMP_classifier/encoder_info.json")
-    with open(encoder_info_path) as f:
+    encoder_info_path = dir_path / "trained_models" / "classifiers" / "AMP_classifier" / "encoder_info.json"
+    with encoder_info_path.open() as f:
         encoder_info = json.load(f)
     encoder_name = encoder_info["encoder_name"]
     encoder = T5EncoderModel.from_pretrained(encoder_name).to(device).eval()
@@ -39,8 +40,9 @@ def load_encoder(dir_path, device):
 
 def load_fasta(fasta_path):
     """Load sequences from FASTA file."""
+    fasta_path = Path(fasta_path)
     print(f"🔄 Loading sequences from {fasta_path}...")
-    records = list(SeqIO.parse(fasta_path, "fasta"))
+    records = list(SeqIO.parse(str(fasta_path), "fasta"))
     sequences = [str(rec.seq).upper() for rec in records]
     if not sequences:
         raise ValueError(f"No sequences found in {fasta_path}")
@@ -90,7 +92,7 @@ def classify_amp_mic(embeddings, amp_clf, mic_clf, amp_threshold=0.5):
 def save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_classes, output_path):
     """Save results to TSV file."""
     print(f"🔄 Saving predictions to {output_path}...")
-    os.makedirs(output_path, exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame({
         "seq_id": [rec.id for rec in records],
         "sequence": sequences,
@@ -100,7 +102,7 @@ def save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_clas
         "mic_class": mic_classes
     })
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(output_path, "classified_peptides_" + timestamp + ".tsv")
+    output_file = output_path / ("classified_peptides_" + timestamp + ".tsv")
     df.to_csv(output_file, sep="\t", index=False)
     print(f"✅ Predictions saved to {output_file}")
 
@@ -112,34 +114,26 @@ def main():
 
     args = parser.parse_args()
     
-    dir_path = os.getcwd()  # Current directory as base path
+    dir_path = Path(__file__).resolve().parent  # Script directory as base path
     
-    # Output directory
     output_dir = args.output_dir or "classified_peptides"
-    output_path = os.path.join(os.getcwd(), output_dir)
+    output_path = dir_path / output_dir
 
-
-    # Set parameters
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     amp_threshold = 0.5
     batch_size = 64
     
-    # Load models
     amp_clf, mic_clf = load_classifiers(dir_path)
     encoder, tokenizer = load_encoder(dir_path, device)
 
-    # Load sequences
     records, sequences = load_fasta(args.input)
 
-    # Generate embeddings
     embeddings = generate_embeddings(sequences, encoder, tokenizer, device, batch_size=batch_size)
 
-    # Classify
     amp_probs, amp_classes, mic_probs, mic_classes = classify_amp_mic(
         embeddings, amp_clf, mic_clf, amp_threshold=amp_threshold
     )
 
-    # Save results
     save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_classes, output_path)
 
 if __name__ == "__main__":
