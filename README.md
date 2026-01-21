@@ -43,21 +43,22 @@ Follow the steps below to install and set up PLUM.
 ### Step 1: Clone the repository
 ```bash
 git clone https://github.com/priyamayur/PLUM.git
-
+```
 
 ### Step 2: Navigate to the project directory
-
+```bash
 cd PLUM
-
+```
 ### Step 3: Create a pip environment and activate it
-
+```bash
 python3 -m venv <environment_name>
 source <environment_name>/bin/activate
+```
 
 ### Step 4: Create a pip environment and activate it
-
+```bash
 pip install -r requirements.txt
-
+```
 ---
 
 ## Usage
