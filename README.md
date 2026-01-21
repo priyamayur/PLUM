@@ -52,6 +52,8 @@ cd PLUM
 ### Step 3: Create a pip environment and activate it
 ```bash
 python3 -m venv <environment_name>
+```
+```bash
 source <environment_name>/bin/activate
 ```
 
@@ -69,16 +71,17 @@ PLUM includes a classification script to predict whether a peptide is an antimic
 For peptides predicted as AMPs, the model also predicts whether they are **Potent** or **Non-Potent**.
 
 #### Command
-
+```bash
 python classify_AMP.py -i <input_fasta> -o <output_tsv>
+```
 
 - `-i <input_fasta>` : Path to the input FASTA file containing the peptide sequences you want to classify. Each sequence should have a unique identifier. **Required**.
 - `-o <output_tsv>` : Path to the output TSV file where the classification results will be saved. **Required**.
 
 #### Example usage
-
+```bash
 python classify_AMP.py -i data/peptide_test.fasta -o res/classification_out.tsv
-
+```
 #### output file
 
 The output TSV file from `classify_AMP.py` contains the following columns:
@@ -97,8 +100,9 @@ The output TSV file from `classify_AMP.py` contains the following columns:
 PLUM allows generating novel peptide sequences (*de novo*) using the trained generative model.
 
 #### Command
-
+```bash
 python generate_peptides_denovo.py -f <AMP_function> -l <peptide_length> -n <num_peptides> -o <output_dir>
+```
 
 - `-f <AMP_function>` : Desired function of the peptide.  
   - `1` for AMP  
@@ -116,9 +120,9 @@ python generate_peptides_denovo.py -f <AMP_function> -l <peptide_length> -n <num
   - Optional; default is `generated_peptides/`. 
 
 #### Example usage
-
+```bash
 python generate_peptides_denovo.py -f 0 -l 12 -n 30 -o outp_denovo
-
+```
 #### output file
 
 The generated peptides CSV file contains the following columns:
@@ -136,9 +140,9 @@ The generated peptides CSV file contains the following columns:
 
 
 #### Command
-
+```bash
 python generate_peptides_prototype_conditioned.py -i <input_fasta> -f <AMP_function> -l <peptide_length> -n <num_peptides> -o <output_dir>
-
+```
 - `-f <AMP_function>` : Desired function of the peptide.  
   - `1` for AMP  
   - `0` for Non-AMP  
@@ -156,8 +160,9 @@ python generate_peptides_prototype_conditioned.py -i <input_fasta> -f <AMP_funct
   - Optional; default is `generated_peptides_prototype/`. generated_peptides
 
 #### Example usage
-
+```bash
 python generate_peptides_prototype_conditioned.py -i data/peptide_test.fasta -f 1 -l 11 -n 5 -o out_proto
+```
 
 #### output file
 
