@@ -66,7 +66,7 @@ pip install -r requirements.txt
 
 ## Installation (Windows)
 
-For windows mahine use the same steps 1,2 and 4.
+For windows machine use the same steps 1,2 and 4.
 For step 3: 
 ```bash
 python3 -m venv <environment_name>
