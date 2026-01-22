@@ -177,77 +177,165 @@ def generate_random_peptides_lstm(decoder, latent_dim, seq_len, output_fasta, de
                     f.write(f">peptide_{count}_func{func_label}_len{length}\n{pep}\n")
                     count += 1
     print(f"✅ Random peptides saved to: {output_fasta}")
+EOS_TOKEN = '<EOS>'
+EOS_IDX = AA_TO_IDX[EOS_TOKEN]
+def generate_peptide(decoder, z, func, length, temperature=1.0, mode='multinomial', top_k=None):
+    """
+    Generate a peptide sequence from a latent vector z.
 
-# -----------------------------
-# Analogue generation
-# -----------------------------
-# -----------------------------
-# Analogue generation (updated for all func × length combinations)
-# -----------------------------
-def generate_analogues_lstm(peptides, y_f, y_s, encoder, decoder, latent_dim,
-                            csv_path, fasta_path, device=None,
-                            num_analogues_per_condition=5, temperature=1.0, perturb_std=0.05):
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    encoder.to(device).eval()
-    decoder.to(device).eval()
-    seq_len = decoder.seq_len
+    Args:
+        decoder: trained DecoderLSTM
+        z: latent vector (1, latent_dim)
+        func: target function label (0 or 1)
+        length: desired peptide length
+        temperature: softmax temperature
+        mode: 'multinomial' (stochastic) or 'argmax' (deterministic)
+        top_k: if set (int), restrict multinomial sampling to top-k amino acids
+    """
+    device = z.device
+    decoder.eval()
+
+    with torch.no_grad():
+        cond = torch.tensor([[func, length / decoder.max_len]], dtype=torch.float32, device=device)
+        logits = decoder(z, cond, targets=None, teacher_forcing_ratio=0.0)
+        logits = logits[:, :length, :]
+        probs = F.softmax(logits / temperature, dim=-1)
+
+        seq = []
+        for t in range(length):
+            if mode == 'argmax':
+                idx = torch.argmax(probs[0, t]).item()
+            elif mode == 'multinomial':
+                prob = probs[0, t]
+                if top_k is not None and top_k < len(prob):
+                    # Top-k filtering
+                    top_probs, top_idx = torch.topk(prob, top_k)
+                    top_probs = top_probs / top_probs.sum()  # renormalize
+                    idx = top_idx[torch.multinomial(top_probs, 1).item()].item()
+                else:
+                    idx = torch.multinomial(prob, 1).item()
+            else:
+                raise ValueError("mode must be 'multinomial' or 'argmax'")
+
+            if idx == EOS_IDX:
+                break
+            if idx < len(AMINO_ACIDS):
+                seq.append(AMINO_ACIDS[idx])
+
+    return "".join(seq)
+VOCAB_SIZE = len(AMINO_ACIDS)
+def generate_length_window_analogues(
+    peptides,
+    y_f,
+    encoder,
+    decoder,
+    latent_dim,
+    csv_path,
+    fasta_path,
+    n=5,
+    window=5,
+    min_len=5,
+    max_len=35,
+    perturb_std=0.01,
+    temperature=1.0,
+    mode="multinomial",
+    top_k=None
+):
+    """
+    Generate analogues where target length is constrained to:
+        [prototype_length - window, prototype_length + window]
+    while respecting hard bounds [min_len, max_len].
+
+    Args:
+        peptides: list[str] – prototype sequences (unpadded)
+        y_f: list[int] – function labels
+        encoder, decoder: trained models
+        latent_dim: latent dimension
+        csv_path, fasta_path: output paths
+        n: number of samples per (func, length)
+        window: +/- AA window around prototype length
+        min_len, max_len: hard bounds
+        perturb_std: latent noise std
+        temperature, mode, top_k: decoding controls
+    """
+
+    device = next(encoder.parameters()).device
+    encoder.eval()
+    decoder.eval()
 
     rows = []
-    fasta_lines = []
+    fasta_entries = []
 
-    # Target lengths
-    TARGET_LENGTHS = list(range(5, 36))  # 5 to 35 inclusive
+    for pid, (seq, func) in enumerate(zip(peptides, y_f)):
+        proto_len = len(seq)
+        print("current pid", str(pid), "out of total=", len(peptides))
+        # Determine allowed target lengths
+        tgt_lengths = range(
+            max(min_len, proto_len - window),
+            min(max_len, proto_len + window) + 1
+        )
 
-    for proto_id, (proto_seq, proto_func, proto_len) in enumerate(zip(peptides, y_f, y_s)):
-        # Encode prototype sequence
-        encoded = np.zeros((1, seq_len, len(AMINO_ACIDS)), dtype=np.float32)
-        for i, aa in enumerate(proto_seq):
-            encoded[0, i, AA_TO_IDX[aa]] = 1.0
-        encoded_tensor = torch.tensor(encoded, dtype=torch.float32).to(device)
-        cond_proto = torch.tensor([[proto_func, proto_len / seq_len]], dtype=torch.float32).to(device)
+        # One-hot encode prototype (no padding length used)
+        x = torch.zeros(1, decoder.max_len, VOCAB_SIZE, device=device)
+        for i, aa in enumerate(seq):
+            x[0, i, AA_TO_IDX[aa]] = 1.0
+
+        cond_proto = torch.tensor(
+            [[func, proto_len / decoder.max_len]],
+            dtype=torch.float32,
+            device=device
+        )
 
         with torch.no_grad():
-            mu, _ = encoder(encoded_tensor, cond_proto)
-        z_proto = mu  # deterministic latent vector
+            mu, _ = encoder(
+                x,
+                cond_proto,
+                torch.tensor([proto_len], device=device)
+            )
+        total_loop = len(tgt_lengths) * n * 2
+        print("total loop", str(total_loop))
+        total_loop_count = 0
+        for tgt_func in [0, 1]:
+            for tgt_len in tgt_lengths:
+                for _ in range(n):
+                    total_loop_count += 1
+                    # print("current loop", str(total_loop_count), "out of total=", str(total_loop))
+                    z = mu + torch.randn_like(mu) * perturb_std
 
-        # Generate analogues for all combinations of function and length
-        for target_func in [0, 1]:
-            for target_length in TARGET_LENGTHS:
-                target_cond = torch.tensor([[target_func, target_length / seq_len]], dtype=torch.float32).to(device)
-                for _ in range(num_analogues_per_condition):
-                    z_perturbed = z_proto + torch.randn_like(z_proto) * perturb_std
-                    with torch.no_grad():
-                        logits = decoder(z_perturbed, target_cond)[:, :target_length, :]
-                        probs = F.softmax(logits / temperature, dim=-1)
-                    gen_seq = "".join([AMINO_ACIDS[torch.multinomial(probs[0, i], 1).item()] for i in range(target_length)])
+                    gen_seq = generate_peptide(
+                        decoder,
+                        z,
+                        tgt_func,
+                        tgt_len,
+                        temperature=temperature,
+                        mode=mode,
+                        top_k=top_k
+                    )
 
-                    # Save CSV row
                     rows.append({
-                        'prototype_sequence': proto_seq,
-                        'generated_sequence': gen_seq,
-                        'original_func': proto_func,
-                        'target_func': target_func,
-                        'original_length': proto_len,
-                        'target_length': target_length
+                        "prototype_sequence": seq,
+                        "generated_sequence": gen_seq,
+                        "original_func": func,
+                        "target_func": tgt_func,
+                        "prototype_length": proto_len,
+                        "target_length": tgt_len,
+                        "length_delta": tgt_len - proto_len
                     })
-                    # Save FASTA entry
-                    header = f">proto{proto_id}_origF{proto_func}_tgtF{target_func}_len{target_length}"
-                    fasta_lines.append(header)
-                    fasta_lines.append(gen_seq)
 
-    # Save CSV
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=['prototype_sequence', 'generated_sequence',
-                                               'original_func', 'target_func', 'original_length', 'target_length'])
-        writer.writeheader()
-        writer.writerows(rows)
+                    fasta_entries.append(
+                        f">proto{pid}_origF{func}_tgtF{tgt_func}_L{tgt_len}\n{gen_seq}"
+                    )
 
-    # # Save FASTA
-    # with open(fasta_path, "w") as f:
-    #     f.write("\n".join(fasta_lines))
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
 
-    print(f"✅ CSV saved to: {csv_path}")
-    #print(f"✅ FASTA saved to: {fasta_path}")
+    with open(fasta_path, "w") as f:
+        f.write("\n".join(fasta_entries))
+
+    print(
+        f"✅ Length-window analogues saved to:\n"
+        f"  CSV   → {csv_path}\n"
+        f"  FASTA → {fasta_path}"
+    )
 
 
 # -----------------------------
@@ -291,20 +379,36 @@ def main():
     y_f_test = df_test['mic_class_binary'].astype(int).tolist()
     y_s_test = [len(p) for p in peptides_test]
 
+    # -----------------------------
+        # Length-window analogue generation
+        # -----------------------------
+        #print("Generating length-window analogue peptides...")
 
-    # -----------------------------
-    # Generate analogues from test
-    # -----------------------------
-    print("Generating analogues...")
-    generate_analogues_lstm(
-        peptides_test, y_f_test, y_s_test,
-        encoder, decoder, latent_dim=16,
-        csv_path=OUTPUT_CSV, fasta_path=OUTPUT_FASTA,
-        device='cuda' if torch.cuda.is_available() else 'cpu',
-        num_analogues_per_condition=5,  # number of analogues per function × length combination
-        temperature=1.0,
-        perturb_std=0.01
+    csv_out_lenwin = (
+        dir_path + "generated_peptides/analogues_lenwin_baseline_2_lstm_AR_200_2.csv"
+    )
+    fasta_out_lenwin = (
+        dir_path + "generated_peptides/analogues_lenwin_baseline_2_lstm_AR.fasta"
     )
 
+    generate_length_window_analogues(
+        peptides=peptides_test,
+        y_f=y_f_test,
+        encoder=encoder,
+        decoder=decoder,
+        latent_dim=16,
+        csv_path=csv_out_lenwin,
+        fasta_path=fasta_out_lenwin,
+        n=10,                 # analogues per (func, length)
+        window=7,            
+        min_len=5,           # hard lower bound
+        max_len=35,          # hard upper bound
+        perturb_std=0.01,
+        temperature=1.0,
+        mode="multinomial",
+        top_k=None
+    )
+
+   
 if __name__ == "__main__":
     main()

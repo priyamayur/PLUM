@@ -15,7 +15,7 @@ import pandas as pd
 # -----------------------------
 AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY'
 AA_TO_IDX = {aa: i for i, aa in enumerate(AMINO_ACIDS)}
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # -----------------------------
 # Dataset
 # -----------------------------
@@ -159,216 +159,131 @@ def generate_peptide(decoder, latent_dim, target_function=1, target_length=10, t
         peptide = "".join([AMINO_ACIDS[torch.multinomial(probs[0, i], 1).item()] for i in range(target_length)])
     return peptide
 
-# -----------------------------
-# Analogue generation (improved)
-# -----------------------------
-def generate_analogues_v2(peptides, y_f, y_s, encoder, decoder, latent_dim,
-                          csv_path, device=None, num_analogues_per_condition=5,
-                          temperature=1.0, perturb_std=0.05):
+
+def generate_lenwin_analogues(
+    prototypes,
+    y_f,
+    encoder,
+    decoder,
+    latent_dim,
+    csv_path,
+    fasta_path,
+    device=None,
+    n=5,
+    window=5,
+    min_len=5,
+    max_len=35,
+    temperature=1.0,
+    perturb_std=0.05,
+    alpha=0.8,
+    mode="multinomial",
+    top_k=None
+):
+    """
+    Generate analogues with target length = prototype_length ± window
+    while respecting hard bounds [min_len, max_len].
+    """
+
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     encoder.to(device).eval()
     decoder.to(device).eval()
+
     seq_len = decoder.seq_len
-
     rows = []
+    fasta = []
+    print("now generating")
+    for pid, (proto_seq, proto_func) in enumerate(zip(prototypes, y_f)):
+        print("current pid", str(pid), "out of total=", len(prototypes))
+        proto_len = len(proto_seq)
 
-    for proto_seq, proto_func, proto_len in zip(peptides, y_f, y_s):
-        # Encode prototype
-        cond_proto = torch.tensor([[proto_func, proto_len / seq_len]], dtype=torch.float32).to(device)
-        encoded = torch.zeros((1, seq_len, len(AMINO_ACIDS)), dtype=torch.float32).to(device)
+        # Length window with hard bounds
+        tgt_lengths = range(
+            max(min_len, proto_len - window),
+            min(max_len, proto_len + window) + 1
+        )
+
+        # One-hot encode prototype
+        encoded = torch.zeros((1, seq_len, len(AMINO_ACIDS)), device=device)
         for i, aa in enumerate(proto_seq):
             encoded[0, i, AA_TO_IDX[aa]] = 1.0
 
-        with torch.no_grad():
-            mu, logvar = encoder(encoded, cond_proto)
-            z_proto = mu.clone() #reparameterize(mu, logvar)
-
-        # Generate analogues across conditions
-        for target_func in [0, 1]:
-            for target_length in range(5, seq_len + 1):
-                target_cond = torch.tensor([[target_func, target_length / seq_len]], dtype=torch.float32).to(device)
-                for _ in range(num_analogues_per_condition):
-                    z_perturbed = z_proto + torch.randn_like(z_proto) * perturb_std
-                    with torch.no_grad():
-                        logits = decoder(z_perturbed, target_cond)[:, :target_length, :]
-                        probs = F.softmax(logits / temperature, dim=-1)
-                    gen_seq = "".join([AMINO_ACIDS[torch.multinomial(probs[0, i], 1).item()]
-                                       for i in range(target_length)])
-                    rows.append({
-                        'prototype_sequence': proto_seq,
-                        'generated_sequence': gen_seq,
-                        'original_func': proto_func,
-                        'target_func': target_func,
-                        'original_length': proto_len,
-                        'target_length': target_length
-                    })
-
-    # Save CSV
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
-
-    print(f"✅ CSV saved to: {csv_path}")
-    
-# def generate_analogues(prototypes, y_f, y_s, encoder, decoder, latent_dim,
-#                        csv_path, device=None, num_analogues_per_condition=5,
-#                        temperature=1.0, perturb_std=0.05, alpha=0.8):
-#     """
-#     Generates prototype-biased peptide analogues with function & length conditioning.
-
-#     Args:
-#         prototypes: list of prototype sequences
-#         y_f: list of prototype function labels (0/1)
-#         y_s: list of prototype lengths
-#         encoder: trained CVAE encoder
-#         decoder: trained CVAE decoder
-#         latent_dim: size of latent space
-#         csv_path: output CSV path
-#         device: 'cpu' or 'cuda'
-#         num_analogues_per_condition: number of analogues per target condition
-#         temperature: softmax temperature for sampling
-#         perturb_std: standard deviation of latent noise
-#         alpha: prototype bias (0=random, 1=exact prototype latent)
-#     """
-#     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-#     encoder.to(device).eval()
-#     decoder.to(device).eval()
-#     seq_len = decoder.seq_len
-
-#     rows = []
-
-#     for proto_seq, proto_func, proto_len in zip(prototypes, y_f, y_s):
-#         # 1️⃣ Encode prototype
-#         cond_proto = torch.tensor([[proto_func, proto_len / seq_len]], dtype=torch.float32).to(device)
-#         encoded = torch.zeros((1, seq_len, len(AMINO_ACIDS)), dtype=torch.float32).to(device)
-#         for i, aa in enumerate(proto_seq):
-#             encoded[0, i, AA_TO_IDX[aa]] = 1.0
-
-#         with torch.no_grad():
-#             mu, logvar = encoder(encoded, cond_proto)
-#             z_proto = mu.clone()  # Level 2: prototype latent anchor
-
-#         # 2️⃣ Loop over all target conditions
-#         for target_func in [0, 1]:
-#             for target_length in range(5, seq_len + 1):
-#                 target_cond = torch.tensor([[target_func, target_length / seq_len]], dtype=torch.float32).to(device)
-
-#                 # Generate multiple analogues per condition
-#                 for _ in range(num_analogues_per_condition):
-#                     # Prototype-biased latent sampling
-#                     noise = torch.randn_like(z_proto) * perturb_std
-#                     z_perturbed = alpha * z_proto + (1 - alpha) * noise
-
-#                     with torch.no_grad():
-#                         logits = decoder(z_perturbed, target_cond)[:, :target_length, :]
-#                         probs = F.softmax(logits / temperature, dim=-1)
-
-#                     # Sample peptide sequence
-#                     gen_seq = "".join([AMINO_ACIDS[torch.multinomial(probs[0, i], 1).item()]
-#                                        for i in range(target_length)])
-
-#                     rows.append({
-#                         'prototype_sequence': proto_seq,
-#                         'generated_sequence': gen_seq,
-#                         'original_func': proto_func,
-#                         'target_func': target_func,
-#                         'original_length': proto_len,
-#                         'target_length': target_length
-#                     })
-
-#     # Save CSV
-#     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-#     with open(csv_path, "w", newline="") as f:
-#         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-#         writer.writeheader()
-#         writer.writerows(rows)
-
-#     print(f"✅ Prototype-biased analogues saved to: {csv_path}")
-def generate_analogues(prototypes, y_f, y_s, encoder, decoder, latent_dim,
-                       csv_path, device=None, num_analogues_per_condition=5,
-                       temperature=1.0, perturb_std=0.05, alpha=0.8,
-                       deterministic=False):
-    """
-    Generates prototype-biased peptide analogues with function & length conditioning.
-    
-    Args:
-        prototypes: list of prototype sequences
-        y_f: list of prototype function labels (0/1)
-        y_s: list of prototype lengths
-        encoder: trained CVAE encoder
-        decoder: trained CVAE decoder
-        latent_dim: size of latent space
-        csv_path: output CSV path
-        device: 'cpu' or 'cuda'
-        num_analogues_per_condition: number of analogues per target condition
-        temperature: softmax temperature for sampling
-        perturb_std: standard deviation of latent noise
-        alpha: prototype bias (0=random, 1=exact prototype latent)
-        deterministic: if True, pick argmax AA instead of multinomial sampling
-    """
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    encoder.to(device).eval()
-    decoder.to(device).eval()
-    seq_len = decoder.seq_len
-
-    rows = []
-
-    for proto_seq, proto_func, proto_len in zip(prototypes, y_f, y_s):
-        # Encode prototype
-        cond_proto = torch.tensor([[proto_func, proto_len / seq_len]], dtype=torch.float32).to(device)
-        encoded = torch.zeros((1, seq_len, len(AMINO_ACIDS)), dtype=torch.float32).to(device)
-        for i, aa in enumerate(proto_seq):
-            encoded[0, i, AA_TO_IDX[aa]] = 1.0
+        cond_proto = torch.tensor(
+            [[proto_func, proto_len / seq_len]],
+            dtype=torch.float32,
+            device=device
+        )
 
         with torch.no_grad():
-            mu, logvar = encoder(encoded, cond_proto)
+            mu, _ = encoder(encoded, cond_proto)
             z_proto = mu.clone()
 
-        # Loop over all target conditions
-        for target_func in [0, 1]:
-            for target_length in range(5, seq_len + 1):
-                target_cond = torch.tensor([[target_func, target_length / seq_len]], dtype=torch.float32).to(device)
+        total_loop = len(tgt_lengths) * n * 2
+        print("total loop", str(total_loop))
+        total_loop_count = 0
+        for tgt_func in [0, 1]:
+            for tgt_len in tgt_lengths:
+                tgt_cond = torch.tensor(
+                    [[tgt_func, tgt_len / seq_len]],
+                    dtype=torch.float32,
+                    device=device
+                )
 
-                for _ in range(num_analogues_per_condition):
-                    # Prototype-biased latent
+                for _ in range(n):
+                    total_loop_count += 1
+                    # print("current loop", str(total_loop_count), "out of total=", str(total_loop))
+
+                    # Perturb z_proto
                     noise = torch.randn_like(z_proto) * perturb_std
-                    z_perturbed = alpha * z_proto + (1 - alpha) * noise
+                    z = alpha * z_proto + (1 - alpha) * noise
 
                     with torch.no_grad():
-                        logits = decoder(z_perturbed, target_cond)[:, :target_length, :]
+                        logits = decoder(z, tgt_cond)[:, :tgt_len, :]
                         probs = F.softmax(logits / temperature, dim=-1)
 
-                    # Generate sequence
-                    gen_seq = ""
-                    for i in range(target_length):
-                        if deterministic:
-                            # Pick argmax amino acid (deterministic)
+                    gen = []
+                    for i in range(tgt_len):
+                        if mode == "argmax":
                             aa_idx = torch.argmax(probs[0, i]).item()
+                        elif mode == "multinomial":
+                            prob = probs[0, i]
+                            if top_k is not None and top_k < len(prob):
+                                top_probs, top_idx = torch.topk(prob, top_k)
+                                top_probs = top_probs / top_probs.sum()
+                                aa_idx = top_idx[torch.multinomial(top_probs, 1).item()].item()
+                            else:
+                                aa_idx = torch.multinomial(prob, 1).item()
                         else:
-                            # Multinomial sampling (stochastic)
-                            aa_idx = torch.multinomial(probs[0, i], 1).item()
-                        gen_seq += AMINO_ACIDS[aa_idx]
+                            raise ValueError("mode must be 'multinomial' or 'argmax'")
+                        gen.append(AMINO_ACIDS[aa_idx])
+
+                    gen_seq = "".join(gen)
 
                     rows.append({
-                        'prototype_sequence': proto_seq,
-                        'generated_sequence': gen_seq,
-                        'original_func': proto_func,
-                        'target_func': target_func,
-                        'original_length': proto_len,
-                        'target_length': target_length
+                        "prototype_sequence": proto_seq,
+                        "generated_sequence": gen_seq,
+                        "original_func": proto_func,
+                        "target_func": tgt_func,
+                        "prototype_length": proto_len,
+                        "target_length": tgt_len,
+                        "length_delta": tgt_len - proto_len
                     })
 
-    # Save CSV
+                    fasta.append(
+                        f">proto{pid}_origF{proto_func}_tgtF{tgt_func}_L{tgt_len}\n{gen_seq}"
+                    )
+
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
 
-    mode = "deterministic" if deterministic else "stochastic"
-    print(f"✅ Prototype-biased {mode} analogues saved to: {csv_path}")
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
 
+    with open(fasta_path, "w") as f:
+        f.write("\n".join(fasta))
+
+    print(
+        f"✅ Length-window CVAE analogues saved to:\n"
+        f"  CSV   → {csv_path}\n"
+        f"  FASTA → {fasta_path}"
+    )
 # -----------------------------
 # Main workflow
 # -----------------------------
@@ -439,21 +354,36 @@ def main():
     print("Generating multi-condition analogues from test prototypes...")
     df_test = pd.read_csv(TEST_CSV)
     test_dataset = PeptideDataset(df_test['sequence'].tolist(), df_test['mic_class_binary'].tolist())
-    # generate_analogues_v2(
-    #     test_dataset.peptides, test_dataset.y_f, test_dataset.y_s,
-    #     encoder, decoder, latent_dim, ANALOGUE_CSV,
-    #     device='cuda' if torch.cuda.is_available() else 'cpu',
-    #     num_analogues_per_condition=5,
-    #     temperature=1.0,
-    #     perturb_std=0.05
-    # )
-    generate_analogues(
-        test_dataset.peptides, test_dataset.y_f, test_dataset.y_s,
-        encoder, decoder, latent_dim, ANALOGUE_CSV,
-        device='cuda' if torch.cuda.is_available() else 'cpu',
-        num_analogues_per_condition=5,
+    
+        # -----------------------------
+    # Length-window analogue generation (CVAE)
+    # -----------------------------
+    print("Generating length-window CVAE analogues...")
+
+    CSV_LENWIN = dir_path + "generated_peptides/analogues_lenwin_baseline_1_2.csv"
+    FASTA_LENWIN = dir_path + "generated_peptides/analogues_lenwin_baseline_1.fasta"
+
+    df_test = pd.read_csv(TEST_CSV)
+    test_dataset = PeptideDataset(df_test['sequence'].tolist(), df_test['mic_class_binary'].tolist())
+
+    generate_lenwin_analogues(
+        prototypes=test_dataset.peptides,
+        y_f=test_dataset.y_f,
+        encoder=encoder,
+        decoder=decoder,
+        latent_dim=latent_dim,
+        csv_path=CSV_LENWIN,
+        fasta_path=FASTA_LENWIN,
+        device=device,
+        n=100,               
+        window=7,         
+        min_len=5,
+        max_len=35,
         temperature=1.0,
-        perturb_std=0.9,alpha=0.3, deterministic=True
+        perturb_std=0.01,
+        alpha=0.4,
+        mode="multinomial",
+        top_k=None
     )
 if __name__ == "__main__":
     main()

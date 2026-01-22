@@ -40,7 +40,7 @@ def load_model(checkpoint_path, device):
 # -------------------- Latent Sampling --------------------
 
 def sample_latents(model, mu_z, n_samples, target_func, target_len_idx, device,
-                   perturb_std=0.5, prior_cache=None, stochastic=True):
+                   perturb_std=0.01, prior_cache=None, stochastic=True):
     z_proto = mu_z.repeat(n_samples, 1)
     z = z_proto + torch.randn_like(z_proto) * perturb_std if stochastic else z_proto
     mu_w, logvar_w = prior_cache[('w', target_func)]
@@ -52,7 +52,7 @@ def sample_latents(model, mu_z, n_samples, target_func, target_len_idx, device,
 # -------------------- Sequence Decoding --------------------
 
 def decode_sequence_batch(model, z, w, v, target_len, proto_onehot=None, beta=0.45,
-                          min_len=5, max_len=35, temperature=0.8, device='cpu',
+                          min_len=5, max_len=35, temperature=1, device='cpu',
                           stochastic=True, top_k=0):
     batch_size = z.size(0)
     seqs = [''] * batch_size
