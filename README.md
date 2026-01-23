@@ -59,7 +59,7 @@ python3 -m venv <environment_name>
 source <environment_name>/bin/activate
 ```
 
-### Step 4: Create a pip environment and activate it
+### Step 4: Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
@@ -77,6 +77,21 @@ python3 -m venv <environment_name>
 ---
 
 ## Usage
+
+Activate the environment before using the software:
+
+For Linux  
+
+```bash
+source <environment_name>/bin/activate
+```
+
+For windows
+
+```bash
+<environment_name>\Scripts\Activate.ps1
+```
+
 
 ### Classify Peptides as AMP / Non-AMP
 
