@@ -32,10 +32,6 @@ The codebase requires the following Python version:
 
 - The software was tested on a Windows system (tested on python version 3.12).
 
-A complete list of required packages and their versions is provided in:
-
-- `requirements.txt`
-
 ---
 
 ## Installation (Linux)
