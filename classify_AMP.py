@@ -19,8 +19,8 @@ warnings.filterwarnings("ignore")
 def load_classifiers(dir_path):
     """Load AMP and MIC classifiers from current directory."""
     print("🔄 Loading AMP and MIC classifiers...")
-    amp_path = dir_path / "trained_models" / "classifiers" / "AMP_classifier" / "classifier.pkl"
-    apm_path = dir_path / "trained_models" / "classifiers" / "Antibacterial_Potency_Model" / "classifier.pkl"
+    amp_path = dir_path / "models" / "classifiers" / "AMP_classifier" / "classifier.pkl"
+    apm_path = dir_path / "models" / "classifiers" / "Antibacterial_Potency_Model" / "classifier.pkl"
     amp_clf = joblib.load(amp_path)
     apm_clf = joblib.load(apm_path)
     print("✅ Classifiers loaded.")
@@ -29,7 +29,7 @@ def load_classifiers(dir_path):
 def load_encoder(dir_path, device):
     """Load ProtT5 encoder and tokenizer from current directory."""
     print("🔄 Loading ProtT5 encoder and tokenizer...")
-    encoder_info_path = dir_path / "trained_models" / "classifiers" / "AMP_classifier" / "encoder_info.json"
+    encoder_info_path = dir_path / "models" / "classifiers" / "AMP_classifier" / "encoder_info.json"
     with encoder_info_path.open() as f:
         encoder_info = json.load(f)
     encoder_name = encoder_info["encoder_name"]

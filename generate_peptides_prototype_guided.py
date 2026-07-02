@@ -13,7 +13,7 @@ import numpy as np
 from tqdm import tqdm
 from Bio import SeqIO
 
-from training_generative_model.generative_model_id_004 import (
+from training_generative_model.generative_model import (
     PeptideCSVAE_LSTM,
     AA_TO_IDX,
     IDX_TO_AA,
@@ -579,7 +579,7 @@ def main():
 
     checkpoint_path = (
         dir_path
-        / "trained_models"
+        / "models"
         / "generative_model"
         / "PLUM_new_analysis_renew_part4_v2_004.pth"
     )

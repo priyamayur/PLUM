@@ -8,20 +8,22 @@ import numpy as np
 # -----------------------------
 # Constants
 # -----------------------------
-AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWYZ"  # includes stop token 'Z'
-PAD_TOKEN = "-"
-START_TOKEN = "#"
+AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWY"  # includes stop token 'Z'
+PAD_TOKEN = "0"
+START_TOKEN = "1"
+STOP_TOKEN = "9"
 
-NUM_AMINO_ACIDS = len(AMINO_ACIDS) + 2  # + PAD + START
+NUM_AMINO_ACIDS = len(AMINO_ACIDS) + 3  # + PAD + START + STOP
 AA_TO_IDX = {aa: i for i, aa in enumerate(AMINO_ACIDS)}
 AA_TO_IDX[PAD_TOKEN] = len(AMINO_ACIDS)
 AA_TO_IDX[START_TOKEN] = len(AMINO_ACIDS) + 1
+AA_TO_IDX[STOP_TOKEN] = len(AMINO_ACIDS) + 2
 IDX_TO_AA = {i: aa for aa, i in AA_TO_IDX.items()}
 
 # -----------------------------
 # Length bins
 # -----------------------------
-LENGTH_BINS = [(5,10), (11,15), (16,20), (21,25), (26,35)]
+LENGTH_BINS = [(5,10), (11,15), (16,20), (21,25), (26,30), (31,35)]
 NUM_LENGTH_BINS = len(LENGTH_BINS)
 BIN_MEANS = [np.mean(low_high) for low_high in LENGTH_BINS]
 
@@ -42,7 +44,7 @@ class PeptideDataset_LSTM(Dataset):
     def __init__(self, sequences, functions, max_len=35):
         self.sequences = sequences
         self.functions = functions
-        self.lengths = [len(seq.replace('-', '').replace('Z','').replace(START_TOKEN,'')) for seq in sequences]
+        self.lengths = [len(seq.replace(PAD_TOKEN, '').replace(STOP_TOKEN,'').replace(START_TOKEN,'')) for seq in sequences]
         self.max_len = max_len
 
     def one_hot_encode(self, seq):
@@ -125,11 +127,20 @@ class PeptideCSVAE_LSTM(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, length_dim)
         )
+        # self.w_to_func = nn.Sequential(
+        #     nn.Linear(w_dim, hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_dim, cond_dim),
+        #     nn.Sigmoid()
+        # )
         self.w_to_func = nn.Sequential(
-            nn.Linear(w_dim, hidden_dim),
+            nn.Linear(w_dim, 64),         # Use a consistent hidden_dim
+            nn.BatchNorm1d(64),           # Stabilizes the latent signal
             nn.ReLU(),
-            nn.Linear(hidden_dim, cond_dim),
-            nn.Sigmoid()
+            nn.Dropout(0.3),              # Prevents the "shortcut" memorization
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, cond_dim)       # No Sigmoid here!
         )
 
         # -----------------
@@ -137,6 +148,8 @@ class PeptideCSVAE_LSTM(nn.Module):
         # -----------------
         self.decoder_lstm = nn.LSTM(self.input_dim + z_dim + w_dim + v_dim,
                                     hidden_dim, lstm_layers, batch_first=True)
+        # self.decoder_lstm = nn.LSTM(self.input_dim +   z_dim + v_dim,
+        #                             hidden_dim, lstm_layers, batch_first=True)
         self.out_x = nn.Linear(hidden_dim, self.input_dim)
 
         # -----------------
@@ -146,9 +159,6 @@ class PeptideCSVAE_LSTM(nn.Module):
                                       hidden_dim, lstm_layers, batch_first=True)
         self.out_x_z = nn.Linear(hidden_dim, self.input_dim)
 
-        # -----------------
-        # Trigram prior for z
-        # -----------------
         self.trigram_embedding = nn.Embedding(NUM_AMINO_ACIDS, embed_dim)
         self.trigram_to_mu = nn.Linear(embed_dim, z_dim)
         self.trigram_to_logvar = nn.Linear(embed_dim, z_dim)
@@ -166,6 +176,11 @@ class PeptideCSVAE_LSTM(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, cond_dim)
         )
+        # self.decoder_z_to_len = nn.Sequential(
+        #     nn.Linear(z_dim, hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_dim, length_dim)
+        # )
         self._init_weights()
         
     def _init_weights(self):
@@ -217,6 +232,9 @@ class PeptideCSVAE_LSTM(nn.Module):
         h = self.encoder_ylen_to_v(y_len)
         return self.mu_ylen_to_v(h), self.logvar_ylen_to_v(h)
 
+
+
+
     # -----------------
     # Decoder functions
     # -----------------
@@ -235,6 +253,7 @@ class PeptideCSVAE_LSTM(nn.Module):
 
         for t in range(seq_len):
             lstm_input = torch.cat([input_t, z.unsqueeze(1), w.unsqueeze(1), v.unsqueeze(1)], dim=2)
+            # lstm_input = torch.cat([input_t,  z.unsqueeze(1), v.unsqueeze(1)], dim=2)
             
             output, (h, c) = self.decoder_lstm(lstm_input, (h, c))
             logits_t = self.out_x(output)
