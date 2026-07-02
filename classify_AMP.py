@@ -20,11 +20,11 @@ def load_classifiers(dir_path):
     """Load AMP and MIC classifiers from current directory."""
     print("🔄 Loading AMP and MIC classifiers...")
     amp_path = dir_path / "trained_models" / "classifiers" / "AMP_classifier" / "classifier.pkl"
-    mic_path = dir_path / "trained_models" / "classifiers" / "AMP_MIC_classifier" / "classifier.pkl"
+    apm_path = dir_path / "trained_models" / "classifiers" / "Antibacterial_Potency_Model" / "classifier.pkl"
     amp_clf = joblib.load(amp_path)
-    mic_clf = joblib.load(mic_path)
+    apm_clf = joblib.load(apm_path)
     print("✅ Classifiers loaded.")
-    return amp_clf, mic_clf
+    return amp_clf, apm_clf
 
 def load_encoder(dir_path, device):
     """Load ProtT5 encoder and tokenizer from current directory."""
@@ -67,29 +67,39 @@ def generate_embeddings(sequences, model, tokenizer, device, batch_size=64):
     print("✅ Embeddings generated.")
     return np.vstack(all_embeddings)
 
-def classify_amp_mic(embeddings, amp_clf, mic_clf, amp_threshold=0.5):
-    """Classify sequences as AMP and MIC."""
+def classify_amp_apm(embeddings, amp_clf, apm_clf, amp_threshold=0.5, apm_threshold=0.5):
+    """Classify sequences as AMP and Antibacterial Potency."""
     print("🔄 Predicting AMP activity...")
-    amp_probs = amp_clf.predict_proba(embeddings)[:, 1]
+
+    amp_probs = np.round(amp_clf.predict_proba(embeddings)[:, 1], 4)
     amp_positive_mask = amp_probs >= amp_threshold
     amp_classes = np.where(amp_positive_mask, "AMP", "Non-AMP")
-    print(f"✅ AMP prediction done.")
 
-    print("🔄 Predicting MIC activity for AMP-positive sequences...")
-    mic_probs = np.full(len(embeddings), np.nan)
-    mic_classes = np.full(len(embeddings), "NA", dtype=object)
+    print("✅ AMP prediction done.")
+
+    print("🔄 Predicting Antibacterial Potency for AMP-positive sequences...")
+
+    apm_probs = np.full(len(embeddings), np.nan)
+    apm_classes = np.full(len(embeddings), "NA", dtype=object)
 
     if np.any(amp_positive_mask):
         X_amp = embeddings[amp_positive_mask]
-        mic_probs_pos = mic_clf.predict_proba(X_amp)[:, 1]
-        mic_classes_pos = np.where(mic_probs_pos >= 0.5, "MIC_active", "MIC_inactive")
-        mic_probs[amp_positive_mask] = mic_probs_pos
-        mic_classes[amp_positive_mask] = mic_classes_pos
-    print("✅ MIC prediction done.")
 
-    return amp_probs, amp_classes, mic_probs, mic_classes
+        apm_probs_pos = np.round(apm_clf.predict_proba(X_amp)[:, 1], 4)
+        apm_classes_pos = np.where(
+            apm_probs_pos >= apm_threshold,
+            "Antibacterial_active",
+            "Antibacterial_inactive"
+        )
 
-def save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_classes, output_path):
+        apm_probs[amp_positive_mask] = apm_probs_pos
+        apm_classes[amp_positive_mask] = apm_classes_pos
+
+    print("✅ Antibacterial Potency prediction done.")
+
+    return amp_probs, amp_classes, apm_probs, apm_classes
+
+def save_results(records, sequences, amp_probs, amp_classes, apm_probs, apm_classes, output_path):
     """Save results to TSV file."""
     print(f"🔄 Saving predictions to {output_path}...")
     output_path.mkdir(parents=True, exist_ok=True)
@@ -98,8 +108,8 @@ def save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_clas
         "sequence": sequences,
         "amp_prob": amp_probs,
         "amp_class": amp_classes,
-        "mic_prob": mic_probs,
-        "mic_class": mic_classes
+        "antibacterial_potency_prob": apm_probs,
+        "antibacterial_potency_class": apm_classes
     })
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = output_path / ("classified_peptides_" + timestamp + ".tsv")
@@ -108,8 +118,10 @@ def save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_clas
 
 # -------------------- Main --------------------
 def main():
-    parser = argparse.ArgumentParser(description="Predict AMP and MIC activity for peptide sequences")
+    parser = argparse.ArgumentParser(description="Predict AMP and Antibacterial Potency activity for peptide sequences")
     parser.add_argument("--input", "-i", required=True, help="Input FASTA file path")
+    parser.add_argument("--amp_threshold", type=float, default=0.5, help="Threshold for AMP classification (default: 0.5)")
+    parser.add_argument("--antibacterial_potency_threshold", type=float, default=0.5, help="Threshold for Antibacterial Potency classification (default: 0.5)")
     parser.add_argument("-o", "--output_dir", default=None, help="Output directory to save peptides TSV (default: ./classified_peptides/)")
 
     args = parser.parse_args()
@@ -120,21 +132,22 @@ def main():
     output_path = dir_path / output_dir
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    amp_threshold = 0.5
+    amp_threshold = args.amp_threshold
+    apm_threshold = args.antibacterial_potency_threshold
     batch_size = 64
     
-    amp_clf, mic_clf = load_classifiers(dir_path)
+    amp_clf, apm_clf = load_classifiers(dir_path)
     encoder, tokenizer = load_encoder(dir_path, device)
 
     records, sequences = load_fasta(args.input)
 
     embeddings = generate_embeddings(sequences, encoder, tokenizer, device, batch_size=batch_size)
 
-    amp_probs, amp_classes, mic_probs, mic_classes = classify_amp_mic(
-        embeddings, amp_clf, mic_clf, amp_threshold=amp_threshold
+    amp_probs, amp_classes, apm_probs, apm_classes = classify_amp_apm(
+        embeddings, amp_clf, apm_clf, amp_threshold=amp_threshold, apm_threshold=apm_threshold
     )
 
-    save_results(records, sequences, amp_probs, amp_classes, mic_probs, mic_classes, output_path)
+    save_results(records, sequences, amp_probs, amp_classes, apm_probs, apm_classes, output_path)
 
 if __name__ == "__main__":
     main()

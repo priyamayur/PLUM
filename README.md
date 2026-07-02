@@ -1,7 +1,7 @@
 # A PLUM Job: Peptide modeLs for Understanding and engineering antiMicrobial therapeutics
 
 **PLUM** is a structured, conditional **Variational Autoencoder (VAE)** framework for the generation of both antimicrobial and non-antimicrobial peptides.  
-The software is designed to support both *denovo generation* and *prototype-conditioned generation*.
+The software is designed to support both *de-novo generation* and *prototype-guided generation*.
 
 This repository provides code and data necessary to reproduce the experiments described in the paper.
 
@@ -92,7 +92,7 @@ For windows
 ### Classify Peptides as AMP / Non-AMP
 
 PLUM includes a classification script to predict whether a peptide is an antimicrobial peptide (AMP) or not.  
-For peptides predicted as AMPs, the model also predicts whether they are **Potent** or **Non-Potent**.
+For peptides predicted as AMPs, the model also predicts whether they are a **Potent** or **Non-Potent** Antibacterial peptide.
 
 #### Command
 ```bash
@@ -102,6 +102,8 @@ python classify_AMP.py -i <input_fasta> -o <output_dir>
 - `-i <input_fasta>` : Path to the input FASTA file containing the peptide sequences you want to classify. Each sequence should have a unique identifier. **Required**.
 - `-o <output_dir>` : Directory where the classified peptides will be saved.  
                       Optional; default is `classified_peptides/`. 
+- `--amp_threshold <threshold value>` : Threshold for AMP classification (default: 0.5)
+- `--antibacterial_potency_threshold <threshold value>` : Threshold for Antibacterial Potency classification (default: 0.5)
 
 #### Example usage
 ```bash
@@ -117,10 +119,10 @@ The output TSV file from `classify_AMP.py` contains the following columns:
 | `sequence`    | Peptide amino acid sequence |
 | `amp_prob`    | Model probability that the peptide is an AMP |
 | `amp_class`   | Predicted class: `AMP` or `Non-AMP` |
-| `mic_prob`    | Probability that the peptide is MIC-active (only for AMPs) |
-| `mic_class`   | Predicted MIC activity: `MIC_active` or `MIC_inactive` or `NA` (Non-AMPs) |
+| `antibacterial_potency_prob`    | Probability that the peptide is an active antibacterial (only for AMPs) |
+| `antibacterial_potency_class`   | Predicted MIC activity: `Antibacterial_active` or `Antibacterial_inactive` or `NA` (Non-AMPs) |
 
-### Generate *de novo* Peptides
+### Generate *de-novo* Peptides
 
 PLUM allows generating novel peptide sequences (*de novo*) using the trained generative model.
 
@@ -134,8 +136,7 @@ python generate_peptides_denovo.py -f <AMP_function> -l <peptide_length> -n <num
   - `0` for Non-AMP  
   - **Required**
 
-- `-l <peptide_length>` : Maximum length of the peptide.  
-  - Generation may stop before this length if the model decides it is optimal.  
+- `-l <peptide_length>` : Length of the generated peptide. 
   - Optional; if not provided, the model selects a random length between 5 and 35.
 
 - `-n <num_peptides>` : Number of peptides to generate.  
@@ -143,6 +144,9 @@ python generate_peptides_denovo.py -f <AMP_function> -l <peptide_length> -n <num
 
 - `-o <output_dir>` : Directory where the generated peptides will be saved.  
   - Optional; default is `generated_peptides/`. 
+
+- `-s <seed number>` : Random seed for reproducibility. ..  
+  - Optional; default is a time-based seed.  
 
 #### Example usage
 ```bash
@@ -156,17 +160,17 @@ The generated peptides TSV file contains the following columns:
 |-------------|-------------|
 | `ID`        | Identifier assigned to the generated peptide (e.g., `peptide_1`) |
 | `Peptide`   | Generated peptide amino acid sequence |
-| `Function`  | Function class: AMP (`1`) or Non-AMP (`0`) |
-| `Length`    | Length of the generated peptide sequence |
+| `Target_Function`  | Function class: AMP (`1`) or Non-AMP (`0`) |
+| `Target_Length`    | Target length specified for generation |
 
 
 
-### Generate Prototype-conditioned Peptides
+### Generate Prototype-guided Peptides
 
 
 #### Command
 ```bash
-python generate_peptides_prototype_conditioned.py -i <input_fasta> -f <AMP_function> -l <peptide_length> -n <num_peptides> -o <output_dir>
+python generate_peptides_prototype_guided.py -i <input_fasta> -f <AMP_function> -l <peptide_length> -n <num_peptides> -o <output_dir>
 ```
 - `-f <AMP_function>` : Desired function of the peptide.  
   - `1` for AMP  
@@ -174,9 +178,8 @@ python generate_peptides_prototype_conditioned.py -i <input_fasta> -f <AMP_funct
   - **Required**
 
 - `-i <input_fasta>` : Path to the input FASTA file containing the protoype peptide sequences you want to base the generation on. **Required**.
-- `-l <peptide_length>` : Maximum length of the peptide.  
-  - Generation may stop before this length if the model decides it is optimal.  
-  - Optional; if not provided, the model selects a random length between 5 and 35.
+- `-l <peptide_length>` : Length of the generated peptide.  
+  - Optional; default is the prototype peptide length.
 
 - `-n <num_peptides>` : Number of peptides to generate.  
   - Optional; default is 5.
@@ -184,9 +187,15 @@ python generate_peptides_prototype_conditioned.py -i <input_fasta> -f <AMP_funct
 - `-o <output_dir>` : Directory where the generated peptides will be saved.  
   - Optional; default is `generated_peptides_prototype/`. generated_peptides
 
+- `-b <beta value>` : Beta value maintains the similarity to the prototype. Ranges from 0 to 1, with 1 being the maximum similarity to the prototype.  
+  - Optional; default is 0.65.
+
+- `-s <seed number>` : Random seed for reproducibility. ..  
+  - Optional; default is a time-based seed. 
+
 #### Example usage
 ```bash
-python generate_peptides_prototype_conditioned.py -i data/peptide_test.fasta -f 1 -l 11 -n 5 -o out_proto
+python generate_peptides_prototype_guided.py.py -i data/peptide_test.fasta -f 1 -l 11 -n 5 -o out_proto
 ```
 
 #### output file
@@ -195,12 +204,10 @@ The generated peptides are saved in a TSV file in the specified output directory
 
 | Column Name          | Description |
 |---------------------|-------------|
-| `prototype_sequence` | The prototype peptide sequence used for conditioning |
-| `generated_sequence` | The peptide sequence generated by the model |
-| `target_func`        | Function class of the generated peptide: AMP (`1`) or Non-AMP (`0`) |
-| `target_length`      | Target length specified for generation |
-| `prototype_length`   | Length of the prototype peptide sequence |
-| `generated_length`   | Length of the generated peptide sequence |
+| `Prototype_sequence` | The prototype peptide sequence used for conditioning |
+| `Generated_sequence` | The peptide sequence generated by the model |
+| `Target_func`        | Function class of the generated peptide: AMP (`1`) or Non-AMP (`0`) |
+| `Target_length`      | Target length specified for generation |
 
 ---
 
