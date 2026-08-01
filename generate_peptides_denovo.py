@@ -97,7 +97,8 @@ def generate_peptides_denovo(
     max_len=35,
     temperature=1.0,
     top_k=0,
-    device="cpu"
+    device="cpu",
+    train_sequences=None
 ):
     """
     Generate peptides conditioned on one target function and one exact target length.
@@ -242,6 +243,8 @@ def generate_peptides_denovo(
         s for s in seqs
         if min_len <= len(s) <= max_len
     ]
+    
+    valid_peptides = [s for s in valid_peptides if s not in train_sequences]
 
     print(
         f"[{now()}] ⏱ Finished length {target_length}: "
@@ -356,6 +359,11 @@ def main():
         / "PLUM_new_analysis_renew_part4_v2_004.pth"
     )
 
+    train_data_path = (
+        dir_path
+        / "data"
+        / "train.csv"
+    )
     # -----------------------------
     # Load model
     # -----------------------------
@@ -369,6 +377,13 @@ def main():
     temperature = 1.0
     top_k = 0
 
+    # -----------------------------
+    # Load train data to get sequences
+    # -----------------------------
+    
+    train_df = pd.read_csv(train_data_path)
+    train_sequences = set(train_df["sequence"].tolist())
+    
     # -----------------------------
     # Generate grouped by target length
     # -----------------------------
@@ -392,7 +407,8 @@ def main():
             max_len=max_len,
             temperature=temperature,
             top_k=top_k,
-            device=device
+            device=device,
+            train_sequences=train_sequences
         )
 
         for peptide in peptides_for_length:
