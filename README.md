@@ -18,7 +18,7 @@ The complete dataset associated with this study is available at the Google Drive
 
 - **Access**:  
   - The data are available via Figshare at the following link:  
-    **[Google Drive Dataset](https://doi.org/10.6084/m9.figshare.33158156)**
+    **[Dataset](https://doi.org/10.6084/m9.figshare.33158156)**
 
 ---
 
