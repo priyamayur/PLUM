@@ -49,7 +49,7 @@ cd PLUM
 ```
 ### Step 3: Create a pip environment and activate it
 ```bash
-python3 -m venv <environment_name>
+python -m venv <environment_name>
 ```
 ```bash
 source <environment_name>/bin/activate
@@ -65,7 +65,7 @@ pip install -r requirements.txt
 For windows machine use the same steps 1,2 and 4.
 For step 3: 
 ```bash
-python3 -m venv <environment_name>
+python -m venv <environment_name>
 ```
 ```bash
 <environment_name>\Scripts\Activate.ps1
@@ -195,7 +195,7 @@ python generate_peptides_prototype_guided.py -i <input_fasta> -f <AMP_function> 
 
 #### Example usage
 ```bash
-python generate_peptides_prototype_guided.py.py -i data/peptide_test.fasta -f 1 -l 11 -n 5 -o out_proto
+python generate_peptides_prototype_guided.py -i data/peptide_test.fasta -f 1 -l 11 -n 5 -o out_proto
 ```
 
 #### output file
